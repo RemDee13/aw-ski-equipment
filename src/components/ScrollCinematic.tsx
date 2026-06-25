@@ -41,7 +41,7 @@ function ScrubCinematic() {
   const sectionRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const posterRef = useRef<HTMLImageElement>(null)
-  const idleRef = useRef<HTMLVideoElement>(null)
+  const idleRef = useRef<HTMLImageElement>(null)
   const actRefs = useRef<(HTMLVideoElement | null)[]>([])
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
@@ -83,8 +83,7 @@ function ScrubCinematic() {
     const warm = () => {
       if (warmed.current) return
       warmed.current = true
-      idleRef.current?.play().catch(() => {}) // idle just plays (never paused by priming)
-      actRefs.current.forEach(prime)
+      actRefs.current.forEach(prime) // idle is an animated image — always running, nothing to prime
     }
     const opts = { once: true, passive: true } as AddEventListenerOptions
     window.addEventListener('touchstart', warm, opts)
@@ -103,7 +102,6 @@ function ScrubCinematic() {
     let raf = 0
     let lastPair: PairId | null = null
     let lastPoster = -1
-    let wasIdle = false
 
     const loop = () => {
       const section = sectionRef.current
@@ -131,15 +129,15 @@ function ScrubCinematic() {
           posterRef.current.src = `${BASE}poster-${posterIdx}.jpg`
         }
 
-        // idle: plays natively (the clip is a seamless forward+reverse boomerang),
-        // so it loops back-and-forth smoothly with zero per-frame seeking → no lag.
-        // Edge-triggered play/pause (not every frame) so we never thrash play() and stall it.
-        const idleV = idleRef.current
-        if (idleV) {
-          if (isIdle && !wasIdle) idleV.play().catch(() => {})
-          else if (!isIdle && wasIdle && !idleV.paused) idleV.pause()
-          wasIdle = isIdle
-          idleV.style.opacity = isIdle && idleV.readyState >= 2 ? '1' : '0'
+        // idle hero is an animated WebP <img> — always running, no autoplay/decode gating.
+        if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
+        // keep the first scrub clips decoded & ready while on the hero, so the first
+        // scroll never lands on a frozen clip
+        if (isIdle) {
+          ;[0, 1].forEach((ai) => {
+            const v = actRefs.current[ai]
+            if (v && !primed.current.has(ai)) { primed.current.add(ai); v.preload = 'auto'; prime(v) }
+          })
         }
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
 
@@ -199,26 +197,20 @@ function ScrubCinematic() {
         {/* poster layer — always visible behind the videos so the screen is never black */}
         <img ref={posterRef} src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
 
-        {/* idle loop */}
-        <video
+        {/* idle hero — animated WebP, always running (no autoplay policy, no decode lag) */}
+        <img
           ref={idleRef}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200"
-          src={`${BASE}idle.mp4`}
-          poster={`${BASE}poster-0.jpg`}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          onLoadedData={(e) => { e.currentTarget.play().catch(() => {}) }}
-          onCanPlay={(e) => { e.currentTarget.play().catch(() => {}) }}
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-smooth"
+          src={`${BASE}idle.webp`}
+          alt=""
+          aria-hidden
         />
-        {/* act videos */}
+        {/* act videos (scrubbed); crossfade between them */}
         {ACT_KEYS.map((k, i) => (
           <video
             key={k}
             ref={(el) => (actRefs.current[i] = el)}
-            className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-150"
+            className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-500 ease-smooth"
             src={`${BASE}${k}.mp4`}
             poster={`${BASE}poster-${i + 1}.jpg`}
             muted
