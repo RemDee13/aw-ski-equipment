@@ -3,7 +3,7 @@ import { Snowflake } from 'lucide-react'
 
 const BASE = import.meta.env.BASE_URL
 // every cinematic clip — fully buffered (in parallel) before the site is revealed
-const VIDEOS = ['idle.mp4', 's1.mp4', 's2.mp4', 's3.mp4', 's4.mp4', 'contact-bg.mp4'].map((f) => BASE + f)
+const VIDEOS = ['idle.mp4', 'acts.mp4', 'contact-bg.mp4'].map((f) => BASE + f)
 const POSTERS = ['poster-0.jpg', 'poster-1.jpg', 'poster-2.jpg', 'poster-3.jpg', 'poster-4.jpg'].map((f) => BASE + f)
 const TOTAL = VIDEOS.length + POSTERS.length
 
