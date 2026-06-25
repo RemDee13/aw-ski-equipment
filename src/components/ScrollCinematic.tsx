@@ -193,7 +193,7 @@ function ScrubCinematic() {
 
   return (
     <section ref={sectionRef} id="cinematic" className="relative" style={{ height: `${TOTAL_VH}vh` }}>
-      <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden bg-bg">
+      <div ref={stageRef} className="sticky top-0 h-[100lvh] w-full overflow-hidden bg-bg">
         {/* poster layer — always visible behind the videos so the screen is never black */}
         <img ref={posterRef} src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
 
@@ -265,7 +265,7 @@ function ScrubCinematic() {
 
         {/* mobile: compact pair sheet — both items fit on screen */}
         {products.length > 0 && (
-          <div className="absolute inset-x-0 bottom-0 md:hidden p-3">
+          <div className="absolute inset-x-0 bottom-0 md:hidden p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="glass rounded-2xl divide-y divide-white/10 card-in-up">
               {products.map((pr) => (
                 <MiniRow key={pr.id} product={pr} />
@@ -436,7 +436,7 @@ function MobileCinematic() {
 
   return (
     <section ref={sectionRef} id="cinematic" className="relative" style={{ height: `${TOTAL_VH}vh` }}>
-      <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden bg-bg">
+      <div ref={stageRef} className="sticky top-0 h-[100lvh] w-full overflow-hidden bg-bg">
         <img src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
         <video
           ref={idleRef}
@@ -465,7 +465,7 @@ function MobileCinematic() {
         </div>
 
         {products.length > 0 && (
-          <div className="absolute inset-x-0 bottom-0 p-3">
+          <div className="absolute inset-x-0 bottom-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="glass rounded-2xl divide-y divide-white/10 card-in-up">
               {products.map((pr) => (
                 <MiniRow key={pr.id} product={pr} />
