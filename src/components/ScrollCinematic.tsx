@@ -322,6 +322,7 @@ function MobileCinematic() {
   const sectionRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stopRef = useRef<HTMLImageElement>(null)
   const idleRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
@@ -361,6 +362,7 @@ function MobileCinematic() {
   useEffect(() => {
     let raf = 0
     let lastPair: PairId | null = null
+    let lastStop = -1
 
     const drawCover = (img: HTMLImageElement, alpha: number) => {
       const cv = canvasRef.current
@@ -394,6 +396,7 @@ function MobileCinematic() {
 
         if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
         if (canvasRef.current) canvasRef.current.style.opacity = isIdle ? '0' : '1'
+        if (isIdle && stopRef.current) stopRef.current.style.opacity = '0'
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
 
         let nextPair: PairId | null = null
@@ -421,6 +424,17 @@ function MobileCinematic() {
           }
           if (seg.pair && localP > SCRUB) nextPair = seg.pair
           if (seg.key === 's4' && localP > 0.5) nextFinale = true
+          // at a parked stop, fade in the crisp full-res poster over the (soft) canvas
+          const atStop = nextPair !== null || nextFinale
+          if (stopRef.current) {
+            if (atStop) {
+              const pi = actIndex + 1
+              if (pi !== lastStop) { lastStop = pi; stopRef.current.src = `${BASE}poster-${pi}.jpg` }
+              stopRef.current.style.opacity = '1'
+            } else {
+              stopRef.current.style.opacity = '0'
+            }
+          }
         }
 
         if (finaleRef.current) finaleRef.current.style.opacity = nextFinale ? '1' : '0'
@@ -451,6 +465,8 @@ function MobileCinematic() {
           onCanPlay={(e) => { e.currentTarget.play().catch(() => {}) }}
         />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-0 transition-opacity duration-500 ease-smooth" />
+        {/* crisp full-res poster fades in at each parked stop (canvas frames are soft) */}
+        <img ref={stopRef} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300 ease-smooth" />
 
         <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-bg/70 via-bg/10 to-bg/60" />
 
