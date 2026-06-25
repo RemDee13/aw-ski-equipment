@@ -8,6 +8,7 @@ import FAQ from './components/FAQ'
 import Contact from './components/Contact'
 import Footer from './components/Footer'
 import { CartProvider, CartDrawer } from './cart'
+import Preloader from './components/Preloader'
 
 export default function App() {
   // smooth scrolling (Lenis), disabled under reduced-motion
@@ -34,6 +35,7 @@ export default function App() {
 
   return (
     <CartProvider>
+    <Preloader />
     <div id="top" className="bg-bg tracking-[-0.02em]">
       <PortfolioRibbon />
       <Navbar />
