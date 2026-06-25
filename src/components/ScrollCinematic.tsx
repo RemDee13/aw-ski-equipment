@@ -28,9 +28,9 @@ const FRAC_ENDS = (() => {
   return SEGMENTS.map((s) => (acc += s.vh) / TOTAL_VH)
 })()
 
-// touch devices get a lighter 480p scrub clip (cheap to seek → no mobile jank)
-const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
-export const ACTS_SRC = COARSE ? 'acts.mobile.mp4' : 'acts.mp4'
+// one all-intra (-g 1) clip for every device — every frame is a keyframe, so seeking
+// to any time is an instant single-frame decode (smooth scrub on mobile, like the reference)
+export const ACTS_SRC = 'acts.mp4'
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -55,8 +55,6 @@ function ScrubCinematic() {
   const revealed = useRef(false)
   const warmedDecoder = useRef(false)
   const warmedGesture = useRef(false)
-  const seeking = useRef(false)
-  const seekStart = useRef(0)
 
   const [pair, setPair] = useState<PairId | null>(null)
   const [size, setSize] = useState({ w: 1280, h: 720 })
@@ -114,15 +112,6 @@ function ScrubCinematic() {
     }
   }, [])
 
-  // seek-pacing: clear the in-flight flag once the decoder presents the seeked frame
-  useEffect(() => {
-    const v = actsRef.current
-    if (!v) return
-    const done = () => { seeking.current = false }
-    v.addEventListener('seeked', done)
-    return () => v.removeEventListener('seeked', done)
-  }, [])
-
   useEffect(() => {
     let raf = 0
     let lastPair: PairId | null = null
@@ -163,16 +152,13 @@ function ScrubCinematic() {
           // map this act's scroll onto its slice of the single concatenated timeline
           const scrubP = clamp(localP / SCRUB)
           const target = ACT_STARTS[actIndex] + scrubP * ACT_DURS[actIndex]
-          curTime.current = target
+          // inertial lerp toward the target (like the reference) — smooth on all devices;
+          // with the all-intra clip each seek is an instant single-frame decode
+          const next = curTime.current + (target - curTime.current) * 0.1
+          curTime.current = next
           if (!acts.paused) acts.pause()
-          // seek-pacing: only issue the next seek once the previous one has rendered,
-          // so the (mobile) decoder never backlogs — that backlog is the jank.
-          const now = performance.now()
-          if (seeking.current && now - seekStart.current > 400) seeking.current = false // watchdog
-          if (!seeking.current && Math.abs(acts.currentTime - target) > 0.02) {
-            seeking.current = true
-            seekStart.current = now
-            try { acts.currentTime = target } catch { seeking.current = false }
+          if (Math.abs(acts.currentTime - next) > 0.001) {
+            try { acts.currentTime = next } catch { /* seeking */ }
           }
           if (acts.readyState >= 2) revealed.current = true
           acts.style.opacity = revealed.current ? '1' : '0'
