@@ -41,7 +41,7 @@ function ScrubCinematic() {
   const sectionRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const posterRef = useRef<HTMLImageElement>(null)
-  const idleRef = useRef<HTMLImageElement>(null)
+  const idleRef = useRef<HTMLVideoElement>(null)
   const actRefs = useRef<(HTMLVideoElement | null)[]>([])
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
@@ -129,7 +129,7 @@ function ScrubCinematic() {
           posterRef.current.src = `${BASE}poster-${posterIdx}.jpg`
         }
 
-        // idle hero is an animated WebP <img> — always running, no autoplay/decode gating.
+        // idle hero is a plain always-playing autoplay video (JS never pauses it) — full quality.
         if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
         // keep the first scrub clips decoded & ready while on the hero, so the first
         // scroll never lands on a frozen clip
@@ -197,13 +197,18 @@ function ScrubCinematic() {
         {/* poster layer — always visible behind the videos so the screen is never black */}
         <img ref={posterRef} src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
 
-        {/* idle hero — animated WebP, always running (no autoplay policy, no decode lag) */}
-        <img
+        {/* idle hero — plain autoplay loop video, full quality (JS never pauses it) */}
+        <video
           ref={idleRef}
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-smooth"
-          src={`${BASE}idle.webp`}
-          alt=""
-          aria-hidden
+          src={`${BASE}idle.mp4`}
+          poster={`${BASE}poster-0.jpg`}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          onCanPlay={(e) => { e.currentTarget.play().catch(() => {}) }}
         />
         {/* act videos (scrubbed); crossfade between them */}
         {ACT_KEYS.map((k, i) => (
