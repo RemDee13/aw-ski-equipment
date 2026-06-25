@@ -82,8 +82,19 @@ function ScrubCinematic() {
         const seg = SEGMENTS[idx]
         const isIdle = seg.key === 'idle'
 
-        // idle video opacity + hero fade
-        if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
+        // idle video: smooth eased ping-pong (forward → reverse → loop), slow at each end
+        const idleV = idleRef.current
+        if (idleV) {
+          idleV.style.opacity = isIdle ? '1' : '0'
+          if (isIdle && idleV.duration) {
+            const D = idleV.duration
+            const period = D * 1.25 // one-way seconds (gentle pace)
+            const m = ((performance.now() / 1000) / period) % 2
+            const tri = 1 - Math.abs(1 - m) // triangle wave 0→1→0
+            const eased = tri * tri * (3 - 2 * tri) // smoothstep: ease in/out at the ends
+            try { idleV.currentTime = eased * (D - 0.05) } catch { /* seeking */ }
+          }
+        }
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
 
         let nextPair: PairId | null = null
@@ -135,9 +146,7 @@ function ScrubCinematic() {
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
           src={`${BASE}idle.mp4`}
           poster={`${BASE}poster-0.jpg`}
-          autoPlay
           muted
-          loop
           playsInline
           preload="auto"
         />

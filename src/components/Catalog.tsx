@@ -21,9 +21,13 @@ export default function Catalog() {
             <article key={p.id} className="reveal-up group glass rounded-3xl overflow-hidden flex flex-col">
               <div className="relative aspect-[4/3] overflow-hidden">
                 <img
-                  src={`${BASE}${POSTER[p.pairId]}`}
+                  src={`${BASE}product-${p.id}.jpg`}
                   alt={p.name}
                   loading="lazy"
+                  onError={(e) => {
+                    const t = e.currentTarget
+                    if (!t.dataset.fb) { t.dataset.fb = '1'; t.src = `${BASE}${POSTER[p.pairId]}` }
+                  }}
                   className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                 />
                 {p.badge && (

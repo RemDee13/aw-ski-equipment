@@ -32,12 +32,20 @@ export default function FAQ() {
   const [open, setOpen] = useState<number | null>(0)
   return (
     <section id="faq" className="relative bg-bg py-24 md:py-32">
-      <div className="max-w-3xl mx-auto px-6">
-        <div className="reveal-up">
+      <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-12 md:gap-16 items-start">
+        <div className="reveal-up md:sticky md:top-28">
           <p className="text-xs tracking-[0.28em] uppercase text-gear mb-4">Questions</p>
           <h2 className="font-playfair italic text-4xl md:text-5xl leading-tight">Good to know.</h2>
+          <p className="mt-4 text-ink-muted">Real gear, fictional shop. Here's the honest version.</p>
+          <img
+            src={`${import.meta.env.BASE_URL}faq-rider.jpg`}
+            alt="A snowboarder geared up on a mountain slope"
+            loading="lazy"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+            className="mt-8 w-full rounded-3xl object-cover aspect-[4/5] max-h-[460px] glass"
+          />
         </div>
-        <div className="mt-10 divide-y divide-white/10 border-y border-white/10">
+        <div className="divide-y divide-white/10 border-y border-white/10">
           {ITEMS.map((it, i) => {
             const isOpen = open === i
             return (

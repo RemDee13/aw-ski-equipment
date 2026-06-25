@@ -1,13 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Mail, Phone, MapPin } from 'lucide-react'
 
 // Web3Forms — public client-side access key (safe to commit, not a secret).
 const ACCESS_KEY = '9ca61ce9-166c-4793-ad84-1aa5f8f3be0f'
 const WEB3FORMS_ENDPOINT = 'https://api.web3forms.com/submit'
 const FALLBACK_EMAIL = 'hello@awski.example'
+const BASE = import.meta.env.BASE_URL
 
 export default function Contact() {
   const [status, setStatus] = useState('')
+  // descending-skiers background video — off under reduced-motion
+  const [bgVideo, setBgVideo] = useState(true)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) setBgVideo(false)
+  }, [])
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -39,6 +45,21 @@ export default function Contact() {
 
   return (
     <section id="contact" className="relative overflow-hidden bg-bg2 py-24 md:py-32">
+      {/* descending-skiers background video (drop public/contact-bg.mp4; stays dark until then) */}
+      {bgVideo && (
+        <video
+          className="absolute inset-0 w-full h-full object-cover opacity-35"
+          src={`${BASE}contact-bg.mp4`}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="none"
+          onError={(e) => { (e.currentTarget as HTMLVideoElement).style.display = 'none' }}
+        />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-r from-bg2 via-bg2/85 to-bg2/55" />
+
       <div className="relative z-10 mx-auto max-w-6xl px-6 grid md:grid-cols-2 gap-14">
         <div className="reveal-up">
           <p className="text-xs tracking-[0.28em] uppercase text-gear mb-5">Get in touch</p>
