@@ -130,16 +130,12 @@ function ScrubCinematic() {
           posterRef.current.src = `${BASE}poster-${posterIdx}.jpg`
         }
 
-        // idle: eased ping-pong (forward → reverse), slow at each end
+        // idle: plays natively (the clip is a seamless forward+reverse boomerang),
+        // so it loops back-and-forth smoothly with zero per-frame seeking → no lag.
         const idleV = idleRef.current
         if (idleV) {
-          if (isIdle && idleV.duration) {
-            const D = idleV.duration
-            const m = ((performance.now() / 1000) / (D * 1.25)) % 2
-            const tri = 1 - Math.abs(1 - m)
-            const eased = tri * tri * (3 - 2 * tri)
-            try { idleV.currentTime = eased * (D - 0.05) } catch { /* seeking */ }
-          }
+          if (isIdle && idleV.paused) idleV.play().catch(() => {})
+          else if (!isIdle && !idleV.paused) idleV.pause()
           idleV.style.opacity = isIdle && idleV.readyState >= 2 ? '1' : '0'
         }
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
@@ -206,7 +202,9 @@ function ScrubCinematic() {
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200"
           src={`${BASE}idle.mp4`}
           poster={`${BASE}poster-0.jpg`}
+          autoPlay
           muted
+          loop
           playsInline
           preload="auto"
         />

@@ -21,47 +21,62 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  const Logo = (
+    <a href="#top" className="flex items-center gap-2 font-semibold tracking-tight">
+      <Snowflake size={18} className="text-gear" />
+      <span>AW Ski</span>
+    </a>
+  )
+
+  const CartButton = (
+    <button
+      onClick={() => setCartOpen(true)}
+      aria-label={`Open your kit (${count} item${count === 1 ? '' : 's'})`}
+      className="relative p-2 text-ink hover:text-gear transition-colors"
+    >
+      <ShoppingBag size={20} />
+      {count > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-gear text-bg text-[11px] font-bold flex items-center justify-center">
+          {count}
+        </span>
+      )}
+    </button>
+  )
+
   return (
     <header className="fixed top-7 left-0 right-0 z-[100] px-4">
+      {/* desktop: single centered pill */}
       <nav
-        className={`mx-auto max-w-5xl flex items-center justify-between rounded-full px-4 sm:px-5 py-2.5 transition-all duration-500 ${
+        className={`hidden md:flex mx-auto max-w-5xl items-center justify-between rounded-full px-5 py-2.5 transition-all duration-500 ${
           solid ? 'glass-nav' : 'bg-transparent border border-transparent'
         }`}
       >
-        <a href="#top" className="flex items-center gap-2 font-semibold tracking-tight">
-          <Snowflake size={18} className="text-gear" />
-          <span>AW Ski</span>
-        </a>
-
-        <div className="hidden md:flex items-center gap-7 text-sm text-ink/80">
+        {Logo}
+        <div className="flex items-center gap-7 text-sm text-ink/80">
           {LINKS.map((l) => (
             <a key={l.href} href={l.href} className="hover:text-ink transition-colors">
               {l.label}
             </a>
           ))}
         </div>
-
         <div className="flex items-center gap-2">
           <a
             href="#gear"
-            className="hidden sm:inline-block bg-brand hover:bg-brand-dark text-white text-sm font-medium px-5 py-2 rounded-full transition-all hover:scale-[1.03] active:scale-95"
+            className="bg-brand hover:bg-brand-dark text-white text-sm font-medium px-5 py-2 rounded-full transition-all hover:scale-[1.03] active:scale-95"
           >
             Shop the kit
           </a>
+          {CartButton}
+        </div>
+      </nav>
+
+      {/* mobile: logo pill on the left, cart + burger pill on the right */}
+      <div className="md:hidden flex items-center justify-between">
+        <div className="glass-nav rounded-full px-4 py-2.5">{Logo}</div>
+        <div className="glass-nav rounded-full px-1.5 py-1 flex items-center gap-0.5">
+          {CartButton}
           <button
-            onClick={() => setCartOpen(true)}
-            aria-label={`Open your kit (${count} item${count === 1 ? '' : 's'})`}
-            className="relative p-2 text-ink hover:text-gear transition-colors"
-          >
-            <ShoppingBag size={20} />
-            {count > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-gear text-bg text-[11px] font-bold flex items-center justify-center">
-                {count}
-              </span>
-            )}
-          </button>
-          <button
-            className="md:hidden p-2 -mr-2 text-ink"
+            className="p-2 text-ink"
             aria-label={open ? 'Close menu' : 'Open menu'}
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
@@ -69,10 +84,11 @@ export default function Navbar() {
             {open ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
-      </nav>
+      </div>
 
+      {/* mobile dropdown menu */}
       {open && (
-        <div className="md:hidden mx-auto max-w-5xl mt-2 glass-nav rounded-2xl p-4 flex flex-col gap-1 text-ink/85">
+        <div className="md:hidden mt-2 glass-nav rounded-2xl p-4 flex flex-col gap-1 text-ink/85">
           {LINKS.map((l) => (
             <a
               key={l.href}
