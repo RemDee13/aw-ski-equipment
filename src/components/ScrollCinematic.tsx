@@ -31,7 +31,7 @@ const FRAC_ENDS = (() => {
 // desktop scrubs an all-intra (-g 1) video; touch devices scrub an image sequence on
 // <canvas> (images preload reliably on iOS and draw instantly — no video-seek jank).
 export const ACTS_SRC = 'acts.mp4'
-export const FRAME_COUNT = 127
+export const FRAME_COUNT = 254
 export const TOTAL_DUR = ACT_DURS.reduce((a, b) => a + b, 0)
 export const frameUrl = (i: number) => `${BASE}frames/f_${String(i + 1).padStart(3, '0')}.jpg`
 const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
@@ -193,7 +193,7 @@ function ScrubCinematic() {
 
   return (
     <section ref={sectionRef} id="cinematic" className="relative" style={{ height: `${TOTAL_VH}vh` }}>
-      <div ref={stageRef} className="sticky top-0 h-[100svh] w-full overflow-hidden bg-bg">
+      <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden bg-bg">
         {/* poster layer — always visible behind the videos so the screen is never black */}
         <img ref={posterRef} src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
 
@@ -362,7 +362,7 @@ function MobileCinematic() {
     let raf = 0
     let lastPair: PairId | null = null
 
-    const drawCover = (img: HTMLImageElement) => {
+    const drawCover = (img: HTMLImageElement, alpha: number) => {
       const cv = canvasRef.current
       if (!cv || !img.naturalWidth) return
       const ctx = cv.getContext('2d')
@@ -372,7 +372,9 @@ function MobileCinematic() {
       const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight)
       const w = img.naturalWidth * scale
       const h = img.naturalHeight * scale
+      ctx.globalAlpha = alpha
       ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h)
+      ctx.globalAlpha = 1
     }
 
     const loop = () => {
@@ -402,10 +404,20 @@ function MobileCinematic() {
           const target = ACT_STARTS[actIndex] + scrubP * ACT_DURS[actIndex]
           const next = curTime.current + (target - curTime.current) * 0.15
           curTime.current = next
-          const fi = Math.max(0, Math.min(FRAME_COUNT - 1, Math.round((next / TOTAL_DUR) * (FRAME_COUNT - 1))))
-          if (fi !== lastDrawn.current) {
-            const img = frames.current[fi]
-            if (img && img.complete && img.naturalWidth) { drawCover(img); lastDrawn.current = fi }
+          // fractional frame index + cross-dissolve between the two nearest frames →
+          // smooth motion without needing a huge number of frames
+          const fexact = clamp(next / TOTAL_DUR) * (FRAME_COUNT - 1)
+          if (Math.abs(fexact - lastDrawn.current) > 0.02) {
+            const i0 = Math.floor(fexact)
+            const i1 = Math.min(FRAME_COUNT - 1, i0 + 1)
+            const frac = fexact - i0
+            const a = frames.current[i0]
+            if (a && a.complete && a.naturalWidth) {
+              drawCover(a, 1)
+              const b = frames.current[i1]
+              if (frac > 0.02 && b && b.complete && b.naturalWidth) drawCover(b, frac)
+              lastDrawn.current = fexact
+            }
           }
           if (seg.pair && localP > SCRUB) nextPair = seg.pair
           if (seg.key === 's4' && localP > 0.5) nextFinale = true
@@ -424,7 +436,7 @@ function MobileCinematic() {
 
   return (
     <section ref={sectionRef} id="cinematic" className="relative" style={{ height: `${TOTAL_VH}vh` }}>
-      <div ref={stageRef} className="sticky top-0 h-[100svh] w-full overflow-hidden bg-bg">
+      <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden bg-bg">
         <img src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
         <video
           ref={idleRef}
