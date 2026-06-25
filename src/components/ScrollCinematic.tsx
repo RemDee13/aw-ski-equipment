@@ -134,7 +134,7 @@ function ScrubCinematic() {
         // keep the first scrub clips decoded & ready while on the hero, so the first
         // scroll never lands on a frozen clip
         if (isIdle) {
-          ;[0, 1].forEach((ai) => {
+          ;[0, 1, 2, 3].forEach((ai) => {
             const v = actRefs.current[ai]
             if (v && !primed.current.has(ai)) { primed.current.add(ai); v.preload = 'auto'; prime(v) }
           })
@@ -220,7 +220,7 @@ function ScrubCinematic() {
             poster={`${BASE}poster-${i + 1}.jpg`}
             muted
             playsInline
-            preload={i === 0 ? 'auto' : 'metadata'}
+            preload="auto"
           />
         ))}
 

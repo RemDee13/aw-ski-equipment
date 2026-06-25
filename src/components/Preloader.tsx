@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Snowflake } from 'lucide-react'
 
 const BASE = import.meta.env.BASE_URL
-// the cinematic-critical media — warm these into cache before revealing the site
-const ASSETS = [
-  'idle.mp4', 's1.mp4', 's2.mp4', 's3.mp4', 's4.mp4', 'contact-bg.mp4',
-  'poster-0.jpg', 'poster-1.jpg', 'poster-2.jpg', 'poster-3.jpg', 'poster-4.jpg',
-].map((f) => BASE + f)
+// every cinematic clip — fully buffered (in parallel) before the site is revealed
+const VIDEOS = ['idle.mp4', 's1.mp4', 's2.mp4', 's3.mp4', 's4.mp4', 'contact-bg.mp4'].map((f) => BASE + f)
+const POSTERS = ['poster-0.jpg', 'poster-1.jpg', 'poster-2.jpg', 'poster-3.jpg', 'poster-4.jpg'].map((f) => BASE + f)
+const TOTAL = VIDEOS.length + POSTERS.length
 
 const MAX_MS = 3000 // hard cap: never hold the user longer than 3s
 const MIN_MS = 600 // avoid a jarring flash on very fast loads
@@ -19,18 +18,24 @@ export default function Preloader() {
 
   useEffect(() => {
     const start = performance.now()
-    const received: Record<string, number> = {}
-    const totals: Record<string, number> = {}
     let alive = true
+    const vids: HTMLVideoElement[] = []
+    const ready = new Array(POSTERS.length).fill(0) // poster readiness 0/1
 
-    const update = () => {
+    const recompute = () => {
       if (!alive) return
-      const tot = Object.values(totals).reduce((a, b) => a + b, 0)
-      const rec = Object.values(received).reduce((a, b) => a + b, 0)
-      const real = tot > 0 ? rec / tot : 0
-      const timeP = Math.min((performance.now() - start) / MAX_MS, 1) * 0.9
+      // video readiness = buffered fraction; poster readiness = loaded 0/1
+      let sum = 0
+      for (const v of vids) {
+        const b = v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0
+        sum += v.duration ? Math.min(1, b / v.duration) : 0
+      }
+      sum += ready.reduce((a, b) => a + b, 0)
+      const real = sum / TOTAL
+      const timeP = Math.min((performance.now() - start) / MAX_MS, 1) * 0.92
       const p = Math.round(Math.min(1, Math.max(real, timeP)) * 100)
       setPct((prev) => (p > prev ? p : prev))
+      if (real >= 0.999) finish()
     }
 
     const finish = () => {
@@ -44,31 +49,40 @@ export default function Preloader() {
       }, wait)
     }
 
-    Promise.all(
-      ASSETS.map(async (u) => {
-        try {
-          const res = await fetch(u)
-          totals[u] = Number(res.headers.get('content-length') || 0)
-          received[u] = 0
-          const reader = res.body?.getReader()
-          if (!reader) { received[u] = totals[u] || 1; update(); return }
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            received[u] += value?.length || 0
-            update()
-          }
-        } catch {
-          totals[u] = totals[u] || 1
-          received[u] = totals[u]
-        }
-        update()
-      }),
-    ).then(finish)
+    // videos — buffer fully in parallel, wait for canplaythrough
+    VIDEOS.forEach((url) => {
+      const v = document.createElement('video')
+      v.muted = true
+      v.preload = 'auto'
+      v.playsInline = true
+      v.src = url
+      const done = () => recompute()
+      v.addEventListener('canplaythrough', done)
+      v.addEventListener('progress', recompute)
+      v.addEventListener('loadeddata', recompute)
+      v.addEventListener('error', () => { recompute() })
+      v.load()
+      vids.push(v)
+    })
+
+    // posters — in parallel
+    POSTERS.forEach((url, i) => {
+      const img = new Image()
+      const mark = () => { ready[i] = 1; recompute() }
+      img.onload = mark
+      img.onerror = mark
+      img.src = url
+    })
 
     const timer = window.setTimeout(finish, MAX_MS)
-    const tick = window.setInterval(update, 100)
-    return () => { alive = false; clearTimeout(timer); clearInterval(tick) }
+    const tick = window.setInterval(recompute, 120)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      clearInterval(tick)
+      // free the off-DOM probe videos; bytes stay in HTTP cache for the real <video>s
+      vids.forEach((v) => { v.removeAttribute('src'); v.load() })
+    }
   }, [])
 
   if (gone) return null
