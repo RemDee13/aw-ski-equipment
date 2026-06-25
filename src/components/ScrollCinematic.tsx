@@ -83,7 +83,7 @@ function ScrubCinematic() {
     const warm = () => {
       if (warmed.current) return
       warmed.current = true
-      prime(idleRef.current)
+      idleRef.current?.play().catch(() => {}) // idle just plays (never paused by priming)
       actRefs.current.forEach(prime)
     }
     const opts = { once: true, passive: true } as AddEventListenerOptions
@@ -103,6 +103,7 @@ function ScrubCinematic() {
     let raf = 0
     let lastPair: PairId | null = null
     let lastPoster = -1
+    let wasIdle = false
 
     const loop = () => {
       const section = sectionRef.current
@@ -132,10 +133,12 @@ function ScrubCinematic() {
 
         // idle: plays natively (the clip is a seamless forward+reverse boomerang),
         // so it loops back-and-forth smoothly with zero per-frame seeking → no lag.
+        // Edge-triggered play/pause (not every frame) so we never thrash play() and stall it.
         const idleV = idleRef.current
         if (idleV) {
-          if (isIdle && idleV.paused) idleV.play().catch(() => {})
-          else if (!isIdle && !idleV.paused) idleV.pause()
+          if (isIdle && !wasIdle) idleV.play().catch(() => {})
+          else if (!isIdle && wasIdle && !idleV.paused) idleV.pause()
+          wasIdle = isIdle
           idleV.style.opacity = isIdle && idleV.readyState >= 2 ? '1' : '0'
         }
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
@@ -207,6 +210,8 @@ function ScrubCinematic() {
           loop
           playsInline
           preload="auto"
+          onLoadedData={(e) => { e.currentTarget.play().catch(() => {}) }}
+          onCanPlay={(e) => { e.currentTarget.play().catch(() => {}) }}
         />
         {/* act videos */}
         {ACT_KEYS.map((k, i) => (
