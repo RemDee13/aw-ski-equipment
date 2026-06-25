@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@1,400;1,500;1,600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { font-family: 'Inter', sans-serif; }
+.font-playfair { font-family: 'Playfair Display', serif; }
+html, body, #root { margin: 0; min-height: 100%; background: #0A0F1A; color: #EAF1F7; }
+html { scroll-behavior: smooth; }
+
+/* ---- liquid glass ---- */
+.glass {
+  background: rgba(18, 32, 58, 0.42);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.glass-nav {
+  background: rgba(10, 15, 26, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+/* ---- focus ring (gear yellow) ---- */
+:where(a, button, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #F2C200;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---- card entrance ---- */
+@keyframes cardInLeft { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes cardInRight { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes cardInUp { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+.card-in-left { animation: cardInLeft 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+.card-in-right { animation: cardInRight 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+.card-in-up { animation: cardInUp 0.42s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* hide horizontal scrollbar on the mobile card strip */
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* ---- marquee ---- */
+@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+.marquee-track { animation: marquee 38s linear infinite; }
+
+/* ---- scroll-in reveal ---- */
+.reveal-up { opacity: 0; transform: translateY(28px); transition: opacity 0.7s cubic-bezier(0.16,1,0.3,1), transform 0.7s cubic-bezier(0.16,1,0.3,1); }
+.reveal-up.in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .card-in-left, .card-in-right, .card-in-up { animation: none; }
+  .marquee-track { animation: none; }
+  .reveal-up { opacity: 1; transform: none; transition: none; }
+}
