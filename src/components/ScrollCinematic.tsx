@@ -28,16 +28,23 @@ const FRAC_ENDS = (() => {
   return SEGMENTS.map((s) => (acc += s.vh) / TOTAL_VH)
 })()
 
-// one all-intra (-g 1) clip for every device — every frame is a keyframe, so seeking
-// to any time is an instant single-frame decode (smooth scrub on mobile, like the reference)
+// desktop scrubs an all-intra (-g 1) video; touch devices scrub an image sequence on
+// <canvas> (images preload reliably on iOS and draw instantly — no video-seek jank).
 export const ACTS_SRC = 'acts.mp4'
+export const FRAME_COUNT = 127
+export const TOTAL_DUR = ACT_DURS.reduce((a, b) => a + b, 0)
+export const frameUrl = (i: number) => `${BASE}frames/f_${String(i + 1).padStart(3, '0')}.jpg`
+const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 export default function ScrollCinematic() {
-  const [fallback] = useState(prefersReducedMotion)
-  if (fallback) return <FallbackCinematic />
+  const [mode] = useState<'reduced' | 'mobile' | 'video'>(() =>
+    prefersReducedMotion() ? 'reduced' : COARSE ? 'mobile' : 'video',
+  )
+  if (mode === 'reduced') return <FallbackCinematic />
+  if (mode === 'mobile') return <MobileCinematic />
   return <ScrubCinematic />
 }
 
@@ -306,6 +313,162 @@ function MiniRow({ product }: { product: Product }) {
         </button>
       </div>
     </div>
+  )
+}
+
+/* ---------------- mobile: image-sequence scrub on <canvas> ---------------- */
+
+function MobileCinematic() {
+  const sectionRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const idleRef = useRef<HTMLVideoElement>(null)
+  const heroRef = useRef<HTMLDivElement>(null)
+  const finaleRef = useRef<HTMLDivElement>(null)
+  const frames = useRef<HTMLImageElement[]>([])
+  const curTime = useRef(0)
+  const lastDrawn = useRef(-1)
+  const [pair, setPair] = useState<PairId | null>(null)
+
+  // preload every frame as a decoded image (reliable on iOS, unlike video preload)
+  useEffect(() => {
+    frames.current = Array.from({ length: FRAME_COUNT }, (_, i) => {
+      const img = new Image()
+      img.src = frameUrl(i)
+      return img
+    })
+  }, [])
+
+  // size the canvas to the stage (dpr-capped)
+  useEffect(() => {
+    const fit = () => {
+      const el = stageRef.current
+      const cv = canvasRef.current
+      if (!el || !cv) return
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      cv.width = Math.round(el.clientWidth * dpr)
+      cv.height = Math.round(el.clientHeight * dpr)
+      cv.style.width = `${el.clientWidth}px`
+      cv.style.height = `${el.clientHeight}px`
+      lastDrawn.current = -1
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    window.addEventListener('orientationchange', fit)
+    return () => { window.removeEventListener('resize', fit); window.removeEventListener('orientationchange', fit) }
+  }, [])
+
+  useEffect(() => {
+    let raf = 0
+    let lastPair: PairId | null = null
+
+    const drawCover = (img: HTMLImageElement) => {
+      const cv = canvasRef.current
+      if (!cv || !img.naturalWidth) return
+      const ctx = cv.getContext('2d')
+      if (!ctx) return
+      const cw = cv.width
+      const ch = cv.height
+      const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight)
+      const w = img.naturalWidth * scale
+      const h = img.naturalHeight * scale
+      ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h)
+    }
+
+    const loop = () => {
+      const section = sectionRef.current
+      if (section) {
+        const vh = window.innerHeight
+        const scrollable = Math.max(1, section.offsetHeight - vh)
+        const p = clamp((window.scrollY - section.offsetTop) / scrollable)
+
+        let idx = 0
+        while (idx < FRAC_ENDS.length - 1 && p > FRAC_ENDS[idx]) idx++
+        const prevEnd = idx === 0 ? 0 : FRAC_ENDS[idx - 1]
+        const localP = clamp((p - prevEnd) / (FRAC_ENDS[idx] - prevEnd))
+        const seg = SEGMENTS[idx]
+        const isIdle = seg.key === 'idle'
+        const actIndex = isIdle ? -1 : idx - 1
+
+        if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
+        if (canvasRef.current) canvasRef.current.style.opacity = isIdle ? '0' : '1'
+        if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
+
+        let nextPair: PairId | null = null
+        let nextFinale = false
+
+        if (!isIdle) {
+          const scrubP = clamp(localP / SCRUB)
+          const target = ACT_STARTS[actIndex] + scrubP * ACT_DURS[actIndex]
+          const next = curTime.current + (target - curTime.current) * 0.15
+          curTime.current = next
+          const fi = Math.max(0, Math.min(FRAME_COUNT - 1, Math.round((next / TOTAL_DUR) * (FRAME_COUNT - 1))))
+          if (fi !== lastDrawn.current) {
+            const img = frames.current[fi]
+            if (img && img.complete && img.naturalWidth) { drawCover(img); lastDrawn.current = fi }
+          }
+          if (seg.pair && localP > SCRUB) nextPair = seg.pair
+          if (seg.key === 's4' && localP > 0.5) nextFinale = true
+        }
+
+        if (finaleRef.current) finaleRef.current.style.opacity = nextFinale ? '1' : '0'
+        if (nextPair !== lastPair) { lastPair = nextPair; setPair(nextPair) }
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  const products = pair ? pairProducts(pair) : []
+
+  return (
+    <section ref={sectionRef} id="cinematic" className="relative" style={{ height: `${TOTAL_VH}vh` }}>
+      <div ref={stageRef} className="sticky top-0 h-[100svh] w-full overflow-hidden bg-bg">
+        <img src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
+        <video
+          ref={idleRef}
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-smooth"
+          src={`${BASE}idle.mp4`}
+          poster={`${BASE}poster-0.jpg`}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          onCanPlay={(e) => { e.currentTarget.play().catch(() => {}) }}
+        />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-0 transition-opacity duration-500 ease-smooth" />
+
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-bg/70 via-bg/10 to-bg/60" />
+
+        <div ref={heroRef} className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 transition-opacity duration-300">
+          <p className="text-xs tracking-[0.3em] uppercase text-gear mb-4">AW Ski Equipment</p>
+          <h1 className="font-playfair italic text-5xl sm:text-6xl leading-[1.05] drop-shadow-[0_2px_30px_rgba(0,0,0,0.6)]">Suit up. Send it.</h1>
+          <p className="mt-5 max-w-md text-ink/75">Pro-grade snowboard gear, built for deep days and long descents. Scroll to gear up.</p>
+          <div className="mt-10 flex flex-col items-center gap-1 text-ink/60 animate-bounce">
+            <span className="text-xs tracking-widest uppercase">Scroll</span>
+            <ChevronDown size={18} />
+          </div>
+        </div>
+
+        {products.length > 0 && (
+          <div className="absolute inset-x-0 bottom-0 p-3">
+            <div className="glass rounded-2xl divide-y divide-white/10 card-in-up">
+              {products.map((pr) => (
+                <MiniRow key={pr.id} product={pr} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div ref={finaleRef} className="absolute inset-x-0 bottom-[14%] flex flex-col items-center text-center px-6 opacity-0 transition-opacity duration-500">
+          <h2 className="font-playfair italic text-4xl sm:text-5xl drop-shadow-[0_2px_30px_rgba(0,0,0,0.7)]">The mountain is waiting.</h2>
+          <p className="mt-3 text-ink/80">Your kit's ready. The line's yours.</p>
+          <a href="#gear" className="mt-6 bg-brand hover:bg-brand-dark text-white font-medium px-7 py-3 rounded-full transition-all active:scale-95">Shop the kit</a>
+        </div>
+      </div>
+    </section>
   )
 }
 
