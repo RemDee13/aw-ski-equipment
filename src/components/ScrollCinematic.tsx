@@ -424,8 +424,9 @@ function MobileCinematic() {
           }
           if (seg.pair && localP > SCRUB) nextPair = seg.pair
           if (seg.key === 's4' && localP > 0.5) nextFinale = true
-          // at a parked stop, fade in the crisp full-res poster over the (soft) canvas
-          const atStop = nextPair !== null || nextFinale
+          // at a parked product stop, fade in the crisp full-res poster over the (soft)
+          // canvas — but NOT at the mountain finale
+          const atStop = nextPair !== null
           if (stopRef.current) {
             if (atStop) {
               const pi = actIndex + 1
