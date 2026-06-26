@@ -58,7 +58,6 @@ function ScrubCinematic() {
   const actsRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
-  const snowRef = useRef<HTMLDivElement>(null)
   const curTime = useRef(0)
   const revealed = useRef(false)
   const warmedDecoder = useRef(false)
@@ -167,11 +166,6 @@ function ScrubCinematic() {
         // idle hero — plain always-playing autoplay video, full quality (JS never pauses it)
         if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
-        if (snowRef.current) {
-          const c = FRAC_ENDS[0] + 0.004
-          const t = clamp(1 - Math.abs(p - c) / 0.011)
-          snowRef.current.style.opacity = String(t * t * (3 - 2 * t) * 0.92)
-        }
 
         let nextPair: PairId | null = null
         let nextFinale = false
@@ -224,7 +218,7 @@ function ScrubCinematic() {
         {/* idle hero — plain autoplay loop video, full quality */}
         <video
           ref={idleRef}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-smooth"
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-smooth"
           src={`${BASE}idle.mp4`}
           poster={`${BASE}poster-0.jpg`}
           autoPlay
@@ -238,7 +232,7 @@ function ScrubCinematic() {
         {/* the scrubbed cinematic — one concatenated clip, one decoder, scrubbed by scroll */}
         <video
           ref={actsRef}
-          className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-500 ease-smooth"
+          className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-700 ease-smooth"
           src={`${BASE}${ACTS_SRC}`}
           poster={`${BASE}poster-0.jpg`}
           muted
@@ -251,12 +245,6 @@ function ScrubCinematic() {
         {/* scrim for legibility */}
         <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-bg/70 via-bg/10 to-bg/60" />
 
-        {/* snow-burst whiteout on the idle -> scroll transition */}
-        <div ref={snowRef} aria-hidden className="absolute inset-0 pointer-events-none opacity-0 snow-burst z-10">
-          <div className="snow-dots" />
-          <div className="snow-streaks" />
-          <div className="snow-veil" />
-        </div>
 
         {/* hero (idle) text */}
         <div ref={heroRef} className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 transition-opacity duration-300">
@@ -357,7 +345,6 @@ function MobileCinematic() {
   const idleRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
-  const snowRef = useRef<HTMLDivElement>(null)
   const frames = useRef<HTMLImageElement[]>([])
   const curTime = useRef(0)
   const lastDrawn = useRef(-1)
@@ -437,11 +424,6 @@ function MobileCinematic() {
         if (canvasRef.current) canvasRef.current.style.opacity = isIdle ? '0' : '1'
         if (isIdle && stopRef.current) stopRef.current.style.opacity = '0'
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
-        if (snowRef.current) {
-          const c = FRAC_ENDS[0] + 0.004
-          const t = clamp(1 - Math.abs(p - c) / 0.011)
-          snowRef.current.style.opacity = String(t * t * (3 - 2 * t) * 0.92)
-        }
 
         let nextPair: PairId | null = null
         let nextFinale = false
@@ -506,7 +488,7 @@ function MobileCinematic() {
         <img src={`${BASE}poster-0.jpg`} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
         <video
           ref={idleRef}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ease-smooth"
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-smooth"
           src={`${BASE}idle.mp4`}
           poster={`${BASE}poster-0.jpg`}
           autoPlay
@@ -516,18 +498,12 @@ function MobileCinematic() {
           preload="auto"
           onCanPlay={(e) => { e.currentTarget.play().catch(() => {}) }}
         />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-0 transition-opacity duration-500 ease-smooth" />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-0 transition-opacity duration-700 ease-smooth" />
         {/* crisp full-res poster fades in at each parked stop (canvas frames are soft) */}
         <img ref={stopRef} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300 ease-smooth" />
 
         <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-bg/70 via-bg/10 to-bg/60" />
 
-        {/* snow-burst whiteout on the idle -> scroll transition */}
-        <div ref={snowRef} aria-hidden className="absolute inset-0 pointer-events-none opacity-0 snow-burst z-10">
-          <div className="snow-dots" />
-          <div className="snow-streaks" />
-          <div className="snow-veil" />
-        </div>
 
         <div ref={heroRef} className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 transition-opacity duration-300">
           <p className="text-xs tracking-[0.3em] uppercase text-gear mb-4">AW Ski Equipment</p>
