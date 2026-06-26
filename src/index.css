@@ -52,6 +52,30 @@ html { scroll-behavior: smooth; }
 @keyframes spinSlow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spinSlow 2.4s linear infinite; }
 
+/* ---- snow-burst transition (idle -> scroll cinematic) ---- */
+.snow-burst { will-change: opacity; }
+.snow-dots, .snow-streaks, .snow-veil { position: absolute; inset: 0; }
+.snow-veil { background: radial-gradient(120% 85% at 50% 38%, rgba(255,255,255,0.55), rgba(255,255,255,0.18) 55%, transparent 80%); }
+.snow-dots {
+  background-image:
+    radial-gradient(circle 2px at 20% 20%, #fff 0 40%, transparent 42%),
+    radial-gradient(circle 1.5px at 70% 35%, #fff 0 40%, transparent 42%),
+    radial-gradient(circle 2.5px at 45% 65%, #fff 0 40%, transparent 42%),
+    radial-gradient(circle 1px at 88% 80%, #fff 0 40%, transparent 42%),
+    radial-gradient(circle 2px at 12% 78%, #fff 0 40%, transparent 42%);
+  background-size: 160px 160px, 220px 220px, 190px 190px, 140px 140px, 240px 240px;
+  animation: snowDrift 0.8s linear infinite;
+}
+.snow-streaks {
+  background-image: repeating-linear-gradient(74deg, transparent 0 8px, rgba(255,255,255,0.22) 8px 9px, transparent 9px 18px);
+  background-size: 80px 80px;
+  filter: blur(1.2px);
+  animation: snowBlow 0.45s linear infinite;
+}
+@keyframes snowDrift { to { background-position: -110px 200px, -150px 240px, -130px 210px, -90px 180px, -160px 250px; } }
+@keyframes snowBlow { to { background-position: -200px 130px; } }
+@media (prefers-reduced-motion: reduce) { .snow-dots, .snow-streaks { animation: none; } }
+
 /* ---- scroll-in reveal ---- */
 .reveal-up { opacity: 0; transform: translateY(28px); transition: opacity 0.7s cubic-bezier(0.16,1,0.3,1), transform 0.7s cubic-bezier(0.16,1,0.3,1); }
 .reveal-up.in { opacity: 1; transform: none; }
