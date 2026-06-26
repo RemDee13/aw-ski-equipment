@@ -185,7 +185,10 @@ function ScrubCinematic() {
           const next = curTime.current + (target - curTime.current) * 0.1
           curTime.current = next
           if (!acts.paused) acts.pause()
-          if (Math.abs(acts.currentTime - next) > 0.001) {
+          // only issue a new seek once the previous one has settled — seeking while a seek is
+          // still in flight makes the browser coalesce/drop frames and the scrub visibly freezes.
+          // When the in-flight seek finishes, the next frame re-seeks to the latest target → self-heals.
+          if (!acts.seeking && Math.abs(acts.currentTime - next) > 0.02) {
             try { acts.currentTime = next } catch { /* seeking */ }
           }
           if (acts.readyState >= 2) revealed.current = true
@@ -461,6 +464,13 @@ function MobileCinematic() {
               const b = frames.current[i1]
               if (frac > 0.02 && b && b.complete && b.naturalWidth) drawCover(b, frac)
               lastDrawn.current = fexact
+            } else {
+              // target frame not decoded yet (or evicted) — draw the nearest ready frame so the
+              // scrub keeps moving instead of freezing; don't bank lastDrawn so it redraws when ready
+              for (let d = 1; d < FRAME_COUNT; d++) {
+                const c = frames.current[i0 - d] || frames.current[i0 + d]
+                if (c && c.complete && c.naturalWidth) { drawCover(c, 1); break }
+              }
             }
           }
           if (seg.pair && localP > SCRUB) nextPair = seg.pair
