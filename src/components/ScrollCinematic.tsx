@@ -72,18 +72,30 @@ function ScrubCinematic() {
     const v = actsRef.current
     if (!v || warmedDecoder.current || !v.duration) return
     warmedDecoder.current = true
-    const pts = [0.12, 0.37, 0.62, 0.87, 0].map((f) => f * v.duration)
-    let i = 0
-    const onSeeked = () => {
-      if (i >= pts.length) {
-        v.removeEventListener('seeked', onSeeked)
-        curTime.current = 0
-        return
+    // seek across the whole timeline to decode keyframes everywhere
+    const sweep = () => {
+      const pts = [0.1, 0.3, 0.5, 0.7, 0.9, 0].map((f) => f * v.duration)
+      let i = 0
+      const onSeeked = () => {
+        if (i >= pts.length) {
+          v.removeEventListener('seeked', onSeeked)
+          curTime.current = 0
+          return
+        }
+        try { v.currentTime = pts[i++] } catch { /* seeking */ }
       }
-      try { v.currentTime = pts[i++] } catch { /* seeking */ }
+      v.addEventListener('seeked', onSeeked)
+      onSeeked()
     }
-    v.addEventListener('seeked', onSeeked)
-    onSeeked()
+    // first actually PLAY for a moment to spin up the decoder pipeline (the real cause of
+    // the cold first-scroll hitch), then pause + sweep — all behind the loader
+    v.muted = true
+    const p = v.play()
+    if (p && typeof p.then === 'function') {
+      p.then(() => window.setTimeout(() => { v.pause(); sweep() }, 220)).catch(sweep)
+    } else {
+      sweep()
+    }
   }
 
   // track stage size (resize + orientation change → recompute anchors)
