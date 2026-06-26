@@ -165,9 +165,9 @@ function ScrubCinematic() {
         if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
         if (snowRef.current) {
-          const c = FRAC_ENDS[0] + 0.02
-          const t = clamp(1 - Math.abs(p - c) / 0.05)
-          snowRef.current.style.opacity = String(t * t * (3 - 2 * t))
+          const c = FRAC_ENDS[0] + 0.004
+          const t = clamp(1 - Math.abs(p - c) / 0.011)
+          snowRef.current.style.opacity = String(t * t * (3 - 2 * t) * 0.92)
         }
 
         let nextPair: PairId | null = null
@@ -425,9 +425,9 @@ function MobileCinematic() {
         if (isIdle && stopRef.current) stopRef.current.style.opacity = '0'
         if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
         if (snowRef.current) {
-          const c = FRAC_ENDS[0] + 0.02
-          const t = clamp(1 - Math.abs(p - c) / 0.05)
-          snowRef.current.style.opacity = String(t * t * (3 - 2 * t))
+          const c = FRAC_ENDS[0] + 0.004
+          const t = clamp(1 - Math.abs(p - c) / 0.011)
+          snowRef.current.style.opacity = String(t * t * (3 - 2 * t) * 0.92)
         }
 
         let nextPair: PairId | null = null
