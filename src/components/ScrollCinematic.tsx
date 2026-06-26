@@ -99,11 +99,14 @@ function ScrubCinematic() {
     }
   }
 
-  // track stage size (resize + orientation change → recompute anchors)
+  // pin the stage to exactly one screen + track its size (resize → recompute anchors)
   useEffect(() => {
     const measure = () => {
       const el = stageRef.current
-      if (el) setSize({ w: el.clientWidth, h: el.clientHeight })
+      if (!el) return
+      // fixed pixel height = one screen — no viewport-unit drift, never stretched on tall displays
+      el.style.height = `${window.innerHeight}px`
+      setSize({ w: el.clientWidth, h: el.clientHeight })
     }
     measure()
     window.addEventListener('resize', measure)
@@ -366,12 +369,19 @@ function MobileCinematic() {
     })
   }, [])
 
-  // size the canvas to the stage (dpr-capped)
+  // size the canvas to the stage (dpr-capped) + pin the stage to one screen
   useEffect(() => {
+    let lockedW = -1
+    let lockedH = 0
     const fit = () => {
       const el = stageRef.current
       const cv = canvasRef.current
       if (!el || !cv) return
+      // pin height to one screen; re-lock only on a real width change (orientation), and only ever
+      // grow to the toolbar-hidden max — so the mobile URL-bar show/hide never restretches the hero
+      if (window.innerWidth !== lockedW) { lockedW = window.innerWidth; lockedH = window.innerHeight }
+      else if (window.innerHeight > lockedH) lockedH = window.innerHeight
+      el.style.height = `${lockedH}px`
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       cv.width = Math.round(el.clientWidth * dpr)
       cv.height = Math.round(el.clientHeight * dpr)
