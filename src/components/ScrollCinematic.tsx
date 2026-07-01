@@ -207,6 +207,7 @@ function ScrubCinematic() {
   const actsRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
+  const hintRef = useRef<HTMLDivElement>(null)
   const committedRef = useRef(0) // current stop index, mirrored for the snap-nav handlers
   const curTime = useRef(0)
   const revealed = useRef(false)
@@ -367,6 +368,8 @@ function ScrubCinematic() {
 
         // cards: only when fully arrived at a product stop; mount on arrival, fade + delayed unmount on leave
         const wantPair = atRest ? STOP_PAIRS[committed] : null
+        // "scroll for more" hint — shown while parked at a product stop so people know there's more below
+        if (hintRef.current) hintRef.current.style.opacity = wantPair ? '1' : '0'
         if (wantPair !== lastWant) {
           lastWant = wantPair
           if (wantPair) {
@@ -484,6 +487,16 @@ function ScrubCinematic() {
             </div>
           </div>
         )}
+
+        {/* "scroll for more" hint — appears at each product stop so people know it's not the end */}
+        <div
+          ref={hintRef}
+          aria-hidden
+          className="absolute inset-x-0 bottom-[150px] md:bottom-7 flex flex-col items-center gap-1 opacity-0 transition-opacity duration-300 pointer-events-none z-10 text-ink/70"
+        >
+          <span className="text-[10px] tracking-[0.22em] uppercase">Scroll for more</span>
+          <ChevronDown size={18} className="animate-bounce" />
+        </div>
 
         {/* finale text */}
         <div ref={finaleRef} className="absolute inset-x-0 bottom-[14%] flex flex-col items-center text-center px-6 opacity-0 transition-opacity duration-500">
@@ -755,11 +768,10 @@ function MobileCinematic() {
         <div
           ref={hintRef}
           aria-hidden
-          className="md:hidden absolute inset-x-0 bottom-[150px] flex justify-center opacity-0 transition-opacity duration-300 pointer-events-none z-10"
+          className="absolute inset-x-0 bottom-[150px] flex flex-col items-center gap-1 opacity-0 transition-opacity duration-300 pointer-events-none z-10 text-ink/75"
         >
-          <div className="w-9 h-9 rounded-full glass-nav flex items-center justify-center text-ink/80 animate-bounce">
-            <ChevronDown size={18} />
-          </div>
+          <span className="text-[10px] tracking-[0.22em] uppercase">Scroll for more</span>
+          <ChevronDown size={18} className="animate-bounce" />
         </div>
 
         {products.length > 0 && (
