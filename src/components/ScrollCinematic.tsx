@@ -69,7 +69,11 @@ const deriveCommitted = (p: number, prev: number) => {
 // scroll position (as a fraction of the section) that parks the page in the middle of each stop's band
 const STOP_CENTER = STOP_TIMES.map((_, i) => ((i === 0 ? 0 : FRAC_ENDS[i - 1]) + FRAC_ENDS[i]) / 2)
 
-type LenisLike = { scrollTo: (t: number, o?: Record<string, unknown>) => void }
+type LenisLike = {
+  scrollTo: (t: number, o?: Record<string, unknown>) => void
+  stop: () => void
+  start: () => void
+}
 const getLenis = () => (window as unknown as { __lenis?: LenisLike }).__lenis
 const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
@@ -82,9 +86,15 @@ function useSnapNav(
   committedRef: MutableRefObject<number>,
 ) {
   useEffect(() => {
-    let snapping = false
+    // busy = a gesture is being consumed. It stays set until the input stream goes quiet
+    // (wheel/trackpad momentum ended, or the finger lifts), so one flick = exactly one stop.
+    let busy = false // input gesture in progress (until wheel/touch goes quiet)
+    let animating = false // snap scroll animation in progress
+    let quietTimer = 0
+    let lenisStopped = false
+    let tActive = false
+    let tBusy = false
     let touchStartY = 0
-    let touchHandled = false
 
     const pinned = () => {
       const st = stageRef.current
@@ -92,55 +102,88 @@ function useSnapNav(
       const r = st.getBoundingClientRect()
       return r.top <= 1 && r.bottom >= window.innerHeight - 1
     }
-    const snapTo = (i: number) => {
+    // while snapping, fully stop Lenis so its own smoothWheel/momentum can't scroll the page past a
+    // stop; re-start it once the gesture goes quiet (or when we release at an end).
+    const stopLenis = () => { const L = getLenis(); if (L && !lenisStopped) { L.stop(); lenisStopped = true } }
+    const startLenis = () => { const L = getLenis(); if (L && lenisStopped) { L.start(); lenisStopped = false } }
+    // only hand control back to Lenis once the gesture is quiet AND the snap has finished animating,
+    // otherwise restarting Lenis mid-snap truncates the scroll short of the stop centre
+    const maybeStart = () => { if (!busy && !animating) startLenis() }
+    const go = (dir: number) => {
       const L = getLenis()
       const sec = sectionRef.current
       if (!L || !sec) return
+      const t = Math.max(0, Math.min(N_STOPS - 1, committedRef.current + dir))
       const scrollable = Math.max(1, sec.offsetHeight - window.innerHeight)
-      const y = Math.round(sec.offsetTop + STOP_CENTER[i] * scrollable)
-      snapping = true
+      const y = Math.round(sec.offsetTop + STOP_CENTER[t] * scrollable)
+      animating = true
       L.scrollTo(y, {
-        duration: 0.85,
-        lock: true,
-        easing: easeInOutCubic,
-        onComplete: () => { window.setTimeout(() => { snapping = false }, 140) },
+        duration: 0.85, lock: true, force: true, easing: easeInOutCubic,
+        onComplete: () => { animating = false; maybeStart() },
       })
     }
-    // returns true if the gesture was consumed (caller should preventDefault)
-    const step = (dir: number) => {
+    const atEnd = (dir: number) => {
       const cur = committedRef.current
-      if ((dir > 0 && cur >= N_STOPS - 1) || (dir < 0 && cur <= 0)) return false // release at the ends
-      if (!snapping) snapTo(cur + dir)
-      return true
+      return (dir > 0 && cur >= N_STOPS - 1) || (dir < 0 && cur <= 0)
     }
 
+    // wheel/trackpad: momentum fires a burst of events. Re-arm the quiet timer on every event so
+    // `busy` only clears after the burst stops → a long inertial flick advances a single stop.
     const onWheel = (e: WheelEvent) => {
       if (!getLenis() || !pinned() || Math.abs(e.deltaY) < 1) return
-      if (step(e.deltaY > 0 ? 1 : -1)) e.preventDefault()
+      const dir = e.deltaY > 0 ? 1 : -1
+      if (atEnd(dir)) { startLenis(); return } // release: hand the wheel back to Lenis to scroll away
+      e.preventDefault()
+      e.stopPropagation()
+      stopLenis() // Lenis is now inert → the whole momentum burst can advance at most one stop
+      window.clearTimeout(quietTimer)
+      quietTimer = window.setTimeout(() => { busy = false; maybeStart() }, 200)
+      if (busy) return
+      busy = true
+      go(dir)
     }
-    const onTouchStart = (e: TouchEvent) => { touchStartY = e.touches[0].clientY; touchHandled = false }
+
+    // touch: one swipe (touchstart→touchend) = one stop, regardless of length/velocity
+    const onTouchStart = (e: TouchEvent) => { tActive = pinned(); tBusy = false; touchStartY = e.touches[0].clientY }
     const onTouchMove = (e: TouchEvent) => {
-      if (touchHandled || !getLenis() || !pinned()) return
+      if (!tActive || !getLenis()) return
       const dy = touchStartY - e.touches[0].clientY
-      if (Math.abs(dy) < 24) return
-      if (step(dy > 0 ? 1 : -1)) { touchHandled = true; e.preventDefault() }
+      const dir = dy > 0 ? 1 : -1
+      if (atEnd(dir)) { tActive = false; return } // release at the ends → native scroll away
+      e.preventDefault() // capture the whole gesture so native momentum can't skip stops
+      e.stopPropagation()
+      if (tBusy || Math.abs(dy) < 24) return
+      tBusy = true
+      go(dir)
     }
+    const onTouchEnd = () => { tActive = false }
+
     const onKey = (e: KeyboardEvent) => {
       if (!getLenis() || !pinned()) return
       const dir = e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ' ? 1
         : e.key === 'ArrowUp' || e.key === 'PageUp' ? -1 : 0
-      if (dir && step(dir)) e.preventDefault()
+      if (!dir || atEnd(dir)) return
+      e.preventDefault()
+      if (busy) return
+      busy = true
+      window.clearTimeout(quietTimer)
+      quietTimer = window.setTimeout(() => { busy = false; maybeStart() }, 200)
+      go(dir)
     }
 
-    window.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true })
     window.addEventListener('touchstart', onTouchStart, { passive: true })
-    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchmove', onTouchMove, { passive: false, capture: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
     window.addEventListener('keydown', onKey)
     return () => {
-      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('wheel', onWheel, { capture: true })
       window.removeEventListener('touchstart', onTouchStart)
-      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchmove', onTouchMove, { capture: true })
+      window.removeEventListener('touchend', onTouchEnd)
       window.removeEventListener('keydown', onKey)
+      window.clearTimeout(quietTimer)
+      startLenis()
     }
   }, [sectionRef, stageRef, committedRef])
 }
