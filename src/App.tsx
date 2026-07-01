@@ -14,7 +14,8 @@ export default function App() {
   // smooth scrolling (Lenis), disabled under reduced-motion
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const lenis = new Lenis({ duration: 1.1, smoothWheel: true })
+    // anchors:true → in-page #hash links (nav, "Skip to catalog", finale CTA) smooth-scroll via Lenis
+    const lenis = new Lenis({ duration: 1.1, smoothWheel: true, anchors: true })
     let raf = 0
     const loop = (t: number) => { lenis.raf(t); raf = requestAnimationFrame(loop) }
     raf = requestAnimationFrame(loop)

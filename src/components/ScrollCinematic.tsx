@@ -17,7 +17,6 @@ const SEGMENTS = [
   { key: 's4', vh: 420, pair: null as PairId | null },
 ]
 const TOTAL_VH = SEGMENTS.reduce((a, s) => a + s.vh, 0)
-const SCRUB = 0.6 // first 60% of an act scrubs the clip; the rest holds + shows cards
 
 // the 4 acts are concatenated into one acts.mp4 — these are each act's slice of that timeline
 const ACT_DURS = [7.708, 8, 8, 8]
@@ -38,6 +37,35 @@ const COARSE = typeof window !== 'undefined' && window.matchMedia('(pointer: coa
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// ---- discrete stop state machine (scroll-INITIATED playback) ----
+// 5 stops: idle → optics → shell → lower → finale. Each stop's time is the END frame of that
+// act (where cards mount). Crossing a scroll-band boundary commits to the next/prev stop and a
+// wall-time tween eases renderTime there (forward OR backward) — decoupled from raw scroll, so
+// the frame never scrubs jitterily with the cursor and never seek-storms on mobile.
+const STOP_TIMES = [...ACT_STARTS, TOTAL_DUR] // [0, 7.708, 15.708, 23.708, 31.708]
+const STOP_PAIRS = SEGMENTS.map((s) => s.pair) // [null, optics, shell, lower, null]
+const N_STOPS = STOP_TIMES.length
+const HYST = 0.03 // half-band hysteresis so a parked cursor never thrashes a boundary
+const TAU = 0.28 // exp-smoothing time constant (s) — a single stop→stop move settles in ~1s
+const SETTLE_EPS = 0.0015 // |Δp| per frame that counts as "stationary"
+const SETTLE_FRAMES = 4 // stationary frames before honoring a multi-band jump directly
+const ARRIVE = 0.12 // renderTime within this (s of video) of goal → "arrived" (cards fire ~1.1s after commit)
+const SNAP = 0.008 // hard-snap to goal only when truly there, so the last hair still eases (no pop)
+
+// stop band containing p (no history) — used once at mount to rest at the restored scroll pos
+const bandAt = (p: number) => {
+  let cur = 0
+  while (cur < N_STOPS - 1 && p > FRAC_ENDS[cur]) cur++
+  return cur
+}
+// committed stop from p with hysteresis (asymmetric up/down thresholds)
+const deriveCommitted = (p: number, prev: number) => {
+  let cur = prev
+  while (cur < N_STOPS - 1 && p > FRAC_ENDS[cur] + HYST) cur++
+  while (cur > 0 && p < FRAC_ENDS[cur - 1] - HYST) cur--
+  return cur
+}
 
 export default function ScrollCinematic() {
   const [mode] = useState<'reduced' | 'mobile' | 'video'>(() =>
@@ -64,6 +92,7 @@ function ScrubCinematic() {
   const warmedGesture = useRef(false)
 
   const [pair, setPair] = useState<PairId | null>(null)
+  const [pairShown, setPairShown] = useState(false) // opacity gate for a fade-out before unmount
   const [size, setSize] = useState({ w: 1280, h: 720 })
 
   // warm the scrub decoder once: seek across the whole timeline so the first real
@@ -136,70 +165,101 @@ function ScrubCinematic() {
 
   useEffect(() => {
     let raf = 0
-    let lastPair: PairId | null = null
+    let last = performance.now()
+    let committed = -1 // current stop index (init on first frame from the restored scroll pos)
+    let target = 0
+    let lastP = 0
+    let stationary = 0
     let lastPoster = -1
+    let lastWant: PairId | null = null
+    let hideTimer = 0
 
     const loop = () => {
       const section = sectionRef.current
       const acts = actsRef.current
       if (section && acts) {
+        const now = performance.now()
+        const dt = Math.min(0.1, Math.max(0, (now - last) / 1000))
+        last = now
+
         const vh = window.innerHeight
         const scrollable = Math.max(1, section.offsetHeight - vh)
         const p = clamp((window.scrollY - section.offsetTop) / scrollable)
 
-        let idx = 0
-        while (idx < FRAC_ENDS.length - 1 && p > FRAC_ENDS[idx]) idx++
-        const prevEnd = idx === 0 ? 0 : FRAC_ENDS[idx - 1]
-        const localP = clamp((p - prevEnd) / (FRAC_ENDS[idx] - prevEnd))
+        // init once — rest at the stop that contains the restored scroll position (no tween on load)
+        if (committed < 0) { committed = bandAt(p); target = committed; curTime.current = STOP_TIMES[committed] }
 
-        const seg = SEGMENTS[idx]
-        const isIdle = seg.key === 'idle'
-        const actIndex = isIdle ? -1 : idx - 1
+        // stationary detection defends against Lenis momentum carrying p across several bands
+        stationary = Math.abs(p - lastP) < SETTLE_EPS ? stationary + 1 : 0
+        lastP = p
 
-        // poster bridge (never black): act start frame while scrubbing in, end frame on the card hold
-        const posterIdx = isIdle ? 0 : localP > SCRUB ? actIndex + 1 : actIndex
+        // committed stop with hysteresis; on a fast flick advance at most one stop per frame
+        const nc = deriveCommitted(p, committed)
+        if (nc !== committed) {
+          committed = stationary >= SETTLE_FRAMES ? nc : committed + Math.sign(nc - committed)
+          target = committed
+        }
+
+        // wall-time exponential tween toward the target stop — retarget-safe (no restart hitch),
+        // plays forward or backward identically, and the clock never waits on the decoder
+        const goal = STOP_TIMES[target]
+        curTime.current += (goal - curTime.current) * (1 - Math.exp(-dt / TAU))
+        const dist = Math.abs(curTime.current - goal)
+        const atRest = dist < ARRIVE
+        if (dist < SNAP) curTime.current = goal
+        const rt = curTime.current
+
+        // render: seek the all-intra clip toward renderTime, gated on !seeking (self-heals next frame)
+        if (acts.readyState >= 2) revealed.current = true
+        if (!acts.paused) acts.pause()
+        if (!acts.seeking && Math.abs(acts.currentTime - rt) > 0.02) {
+          try { acts.currentTime = rt } catch { /* seeking */ }
+        }
+
+        // poster bridge (behind video): show where we're heading; snap to committed only at rest
+        const posterIdx = atRest ? committed : target
         if (posterIdx !== lastPoster && posterRef.current) {
           lastPoster = posterIdx
           posterRef.current.src = `${BASE}poster-${posterIdx}.jpg`
         }
 
-        // idle hero — plain always-playing autoplay video, full quality (JS never pauses it)
-        if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
-        if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
+        // idle ↔ acts crossfade — idle video only when fully at rest in stop 0 (keep acts up on the way back)
+        const showIdle = committed === 0 && atRest
+        if (idleRef.current) idleRef.current.style.opacity = showIdle ? '1' : '0'
+        acts.style.opacity = showIdle ? '0' : (revealed.current ? '1' : '0')
 
-        let nextPair: PairId | null = null
-        let nextFinale = false
-
-        if (!isIdle) {
-          // map this act's scroll onto its slice of the single concatenated timeline
-          const scrubP = clamp(localP / SCRUB)
-          const target = ACT_STARTS[actIndex] + scrubP * ACT_DURS[actIndex]
-          // inertial lerp toward the target (like the reference) — smooth on all devices;
-          // with the all-intra clip each seek is an instant single-frame decode
-          const next = curTime.current + (target - curTime.current) * 0.1
-          curTime.current = next
-          if (!acts.paused) acts.pause()
-          // only issue a new seek once the previous one has settled — seeking while a seek is
-          // still in flight makes the browser coalesce/drop frames and the scrub visibly freezes.
-          // When the in-flight seek finishes, the next frame re-seeks to the latest target → self-heals.
-          if (!acts.seeking && Math.abs(acts.currentTime - next) > 0.02) {
-            try { acts.currentTime = next } catch { /* seeking */ }
-          }
-          if (acts.readyState >= 2) revealed.current = true
-          acts.style.opacity = revealed.current ? '1' : '0'
-          if (seg.pair && localP > SCRUB) nextPair = seg.pair
-          if (seg.key === 's4' && localP > 0.5) nextFinale = true
-        } else {
-          acts.style.opacity = '0'
+        // hero text fades with renderTime across idle→optics; kill taps once hidden (full-screen overlay)
+        if (heroRef.current) {
+          const o = clamp(1 - (rt / STOP_TIMES[1]) * 1.6)
+          heroRef.current.style.opacity = String(o)
+          heroRef.current.style.pointerEvents = o < 0.05 ? 'none' : ''
         }
 
-        if (finaleRef.current) finaleRef.current.style.opacity = nextFinale ? '1' : '0'
-        if (nextPair !== lastPair) { lastPair = nextPair; setPair(nextPair) }
+        // finale: arrived at the mountain, or already past the lower→finale midpoint
+        if (finaleRef.current) {
+          const showFinale = (atRest && committed === N_STOPS - 1) ||
+            (target === N_STOPS - 1 && rt > (STOP_TIMES[N_STOPS - 2] + STOP_TIMES[N_STOPS - 1]) / 2)
+          finaleRef.current.style.opacity = showFinale ? '1' : '0'
+        }
+
+        // cards: only when fully arrived at a product stop; mount on arrival, fade + delayed unmount on leave
+        const wantPair = atRest ? STOP_PAIRS[committed] : null
+        if (wantPair !== lastWant) {
+          lastWant = wantPair
+          if (wantPair) {
+            if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+            setPair(wantPair); setPairShown(true)
+          } else {
+            setPairShown(false)
+            if (hideTimer) clearTimeout(hideTimer)
+            hideTimer = window.setTimeout(() => setPair(null), 320)
+          }
+        }
       }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
+    return () => { cancelAnimationFrame(raf); if (hideTimer) clearTimeout(hideTimer) }
   }, [])
 
   // connector geometry (desktop)
@@ -259,11 +319,18 @@ function ScrubCinematic() {
             <span className="text-xs tracking-widest uppercase">Scroll</span>
             <ChevronDown size={18} />
           </div>
+          {/* mobile: jump straight to the catalog, skipping the cinematic */}
+          <a
+            href="#gear"
+            className="md:hidden mt-6 inline-flex items-center gap-1.5 glass-nav rounded-full px-5 py-2.5 text-sm font-medium text-ink/90 active:scale-95 transition-all"
+          >
+            Skip to catalog <ChevronDown size={15} />
+          </a>
         </div>
 
         {/* connector lines + dual cards (desktop) */}
         {products.length > 0 && (
-          <div className="absolute inset-0 hidden md:block">
+          <div className={`absolute inset-0 hidden md:block transition-opacity duration-300 ${pairShown ? 'opacity-100' : 'opacity-0'}`}>
             <svg className="absolute inset-0 w-full h-full pointer-events-none" width={size.w} height={size.h}>
               {products.map((pr) => {
                 const a = coverPoint(pr.anchor.x, pr.anchor.y, size.w, size.h)
@@ -284,7 +351,7 @@ function ScrubCinematic() {
 
         {/* mobile: compact pair sheet — both items fit on screen */}
         {products.length > 0 && (
-          <div className="absolute inset-x-0 bottom-0 md:hidden p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className={`absolute inset-x-0 bottom-0 md:hidden p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-opacity duration-300 ${pairShown ? 'opacity-100' : 'opacity-0'}`}>
             <div className="glass rounded-2xl divide-y divide-white/10 card-in-up">
               {products.map((pr) => (
                 <MiniRow key={pr.id} product={pr} />
@@ -345,10 +412,12 @@ function MobileCinematic() {
   const idleRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
+  const hintRef = useRef<HTMLDivElement>(null)
   const frames = useRef<HTMLImageElement[]>([])
   const curTime = useRef(0)
   const lastDrawn = useRef(-1)
   const [pair, setPair] = useState<PairId | null>(null)
+  const [pairShown, setPairShown] = useState(false) // opacity gate for a fade-out before unmount
 
   // preload every frame as a decoded image (reliable on iOS, unlike video preload)
   useEffect(() => {
@@ -387,8 +456,14 @@ function MobileCinematic() {
 
   useEffect(() => {
     let raf = 0
-    let lastPair: PairId | null = null
+    let last = performance.now()
+    let committed = -1
+    let target = 0
+    let lastP = 0
+    let stationary = 0
     let lastStop = -1
+    let lastWant: PairId | null = null
+    let hideTimer = 0
 
     const drawCover = (img: HTMLImageElement, alpha: number) => {
       const cv = canvasRef.current
@@ -408,76 +483,101 @@ function MobileCinematic() {
     const loop = () => {
       const section = sectionRef.current
       if (section) {
+        const now = performance.now()
+        const dt = Math.min(0.1, Math.max(0, (now - last) / 1000))
+        last = now
+
         const vh = window.innerHeight
         const scrollable = Math.max(1, section.offsetHeight - vh)
         const p = clamp((window.scrollY - section.offsetTop) / scrollable)
 
-        let idx = 0
-        while (idx < FRAC_ENDS.length - 1 && p > FRAC_ENDS[idx]) idx++
-        const prevEnd = idx === 0 ? 0 : FRAC_ENDS[idx - 1]
-        const localP = clamp((p - prevEnd) / (FRAC_ENDS[idx] - prevEnd))
-        const seg = SEGMENTS[idx]
-        const isIdle = seg.key === 'idle'
-        const actIndex = isIdle ? -1 : idx - 1
+        if (committed < 0) { committed = bandAt(p); target = committed; curTime.current = STOP_TIMES[committed] }
 
-        if (idleRef.current) idleRef.current.style.opacity = isIdle ? '1' : '0'
-        if (canvasRef.current) canvasRef.current.style.opacity = isIdle ? '0' : '1'
-        if (isIdle && stopRef.current) stopRef.current.style.opacity = '0'
-        if (heroRef.current) heroRef.current.style.opacity = isIdle ? String(clamp(1 - localP * 1.6)) : '0'
+        stationary = Math.abs(p - lastP) < SETTLE_EPS ? stationary + 1 : 0
+        lastP = p
 
-        let nextPair: PairId | null = null
-        let nextFinale = false
+        const nc = deriveCommitted(p, committed)
+        if (nc !== committed) {
+          committed = stationary >= SETTLE_FRAMES ? nc : committed + Math.sign(nc - committed)
+          target = committed
+        }
 
-        if (!isIdle) {
-          const scrubP = clamp(localP / SCRUB)
-          const target = ACT_STARTS[actIndex] + scrubP * ACT_DURS[actIndex]
-          const next = curTime.current + (target - curTime.current) * 0.15
-          curTime.current = next
-          // fractional frame index + cross-dissolve between the two nearest frames →
-          // smooth motion without needing a huge number of frames
-          const fexact = clamp(next / TOTAL_DUR) * (FRAME_COUNT - 1)
-          if (Math.abs(fexact - lastDrawn.current) > 0.02) {
-            const i0 = Math.floor(fexact)
-            const i1 = Math.min(FRAME_COUNT - 1, i0 + 1)
-            const frac = fexact - i0
-            const a = frames.current[i0]
-            if (a && a.complete && a.naturalWidth) {
-              drawCover(a, 1)
-              const b = frames.current[i1]
-              if (frac > 0.02 && b && b.complete && b.naturalWidth) drawCover(b, frac)
-              lastDrawn.current = fexact
-            } else {
-              // target frame not decoded yet (or evicted) — draw the nearest ready frame so the
-              // scrub keeps moving instead of freezing; don't bank lastDrawn so it redraws when ready
-              for (let d = 1; d < FRAME_COUNT; d++) {
-                const c = frames.current[i0 - d] || frames.current[i0 + d]
-                if (c && c.complete && c.naturalWidth) { drawCover(c, 1); break }
-              }
-            }
-          }
-          if (seg.pair && localP > SCRUB) nextPair = seg.pair
-          if (seg.key === 's4' && localP > 0.5) nextFinale = true
-          // at a parked product stop, fade in the crisp full-res poster over the (soft)
-          // canvas — but NOT at the mountain finale
-          const atStop = nextPair !== null
-          if (stopRef.current) {
-            if (atStop) {
-              const pi = actIndex + 1
-              if (pi !== lastStop) { lastStop = pi; stopRef.current.src = `${BASE}poster-${pi}.jpg` }
-              stopRef.current.style.opacity = '1'
-            } else {
-              stopRef.current.style.opacity = '0'
+        // wall-time exponential tween toward the target stop (same driver as desktop)
+        const goal = STOP_TIMES[target]
+        curTime.current += (goal - curTime.current) * (1 - Math.exp(-dt / TAU))
+        const dist = Math.abs(curTime.current - goal)
+        const atRest = dist < ARRIVE
+        if (dist < SNAP) curTime.current = goal
+        const rt = curTime.current
+
+        // draw the image-sequence frame for renderTime — fractional index + cross-dissolve of the
+        // two nearest frames; if the target frame isn't decoded, draw the nearest ready one (no freeze)
+        const fexact = clamp(rt / TOTAL_DUR) * (FRAME_COUNT - 1)
+        if (Math.abs(fexact - lastDrawn.current) > 0.02) {
+          const i0 = Math.floor(fexact)
+          const i1 = Math.min(FRAME_COUNT - 1, i0 + 1)
+          const frac = fexact - i0
+          const a = frames.current[i0]
+          if (a && a.complete && a.naturalWidth) {
+            drawCover(a, 1)
+            const b = frames.current[i1]
+            if (frac > 0.02 && b && b.complete && b.naturalWidth) drawCover(b, frac)
+            lastDrawn.current = fexact
+          } else {
+            for (let d = 1; d < FRAME_COUNT; d++) {
+              const c = frames.current[i0 - d] || frames.current[i0 + d]
+              if (c && c.complete && c.naturalWidth) { drawCover(c, 1); break }
             }
           }
         }
 
-        if (finaleRef.current) finaleRef.current.style.opacity = nextFinale ? '1' : '0'
-        if (nextPair !== lastPair) { lastPair = nextPair; setPair(nextPair) }
+        // idle ↔ canvas crossfade — idle video only when fully at rest in stop 0
+        const showIdle = committed === 0 && atRest
+        if (idleRef.current) idleRef.current.style.opacity = showIdle ? '1' : '0'
+        if (canvasRef.current) canvasRef.current.style.opacity = showIdle ? '0' : '1'
+
+        if (heroRef.current) {
+          const o = clamp(1 - (rt / STOP_TIMES[1]) * 1.6)
+          heroRef.current.style.opacity = String(o)
+          heroRef.current.style.pointerEvents = o < 0.05 ? 'none' : ''
+        }
+
+        const isProductStop = atRest && STOP_PAIRS[committed] != null
+        // crisp full-res poster over the (soft) canvas, only parked at a product stop — never at finale
+        if (stopRef.current) {
+          if (isProductStop) {
+            if (committed !== lastStop) { lastStop = committed; stopRef.current.src = `${BASE}poster-${committed}.jpg` }
+            stopRef.current.style.opacity = '1'
+          } else {
+            stopRef.current.style.opacity = '0'
+          }
+        }
+        // "scroll for more" hint arrow — shown only while the product cards are open
+        if (hintRef.current) hintRef.current.style.opacity = isProductStop ? '1' : '0'
+
+        if (finaleRef.current) {
+          const showFinale = (atRest && committed === N_STOPS - 1) ||
+            (target === N_STOPS - 1 && rt > (STOP_TIMES[N_STOPS - 2] + STOP_TIMES[N_STOPS - 1]) / 2)
+          finaleRef.current.style.opacity = showFinale ? '1' : '0'
+        }
+
+        const wantPair = atRest ? STOP_PAIRS[committed] : null
+        if (wantPair !== lastWant) {
+          lastWant = wantPair
+          if (wantPair) {
+            if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+            setPair(wantPair); setPairShown(true)
+          } else {
+            setPairShown(false)
+            if (hideTimer) clearTimeout(hideTimer)
+            hideTimer = window.setTimeout(() => setPair(null), 320)
+          }
+        }
       }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
+    return () => { cancelAnimationFrame(raf); if (hideTimer) clearTimeout(hideTimer) }
   }, [])
 
   const products = pair ? pairProducts(pair) : []
@@ -513,10 +613,28 @@ function MobileCinematic() {
             <span className="text-xs tracking-widest uppercase">Scroll</span>
             <ChevronDown size={18} />
           </div>
+          {/* jump straight to the catalog, skipping the cinematic */}
+          <a
+            href="#gear"
+            className="md:hidden mt-6 inline-flex items-center gap-1.5 glass-nav rounded-full px-5 py-2.5 text-sm font-medium text-ink/90 active:scale-95 transition-all"
+          >
+            Skip to catalog <ChevronDown size={15} />
+          </a>
+        </div>
+
+        {/* "scroll for more" hint — appears above the sheet only while cards are open at a stop */}
+        <div
+          ref={hintRef}
+          aria-hidden
+          className="md:hidden absolute inset-x-0 bottom-[150px] flex justify-center opacity-0 transition-opacity duration-300 pointer-events-none z-10"
+        >
+          <div className="w-9 h-9 rounded-full glass-nav flex items-center justify-center text-ink/80 animate-bounce">
+            <ChevronDown size={18} />
+          </div>
         </div>
 
         {products.length > 0 && (
-          <div className="absolute inset-x-0 bottom-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className={`absolute inset-x-0 bottom-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-opacity duration-300 ${pairShown ? 'opacity-100' : 'opacity-0'}`}>
             <div className="glass rounded-2xl divide-y divide-white/10 card-in-up">
               {products.map((pr) => (
                 <MiniRow key={pr.id} product={pr} />
