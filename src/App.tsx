@@ -16,6 +16,8 @@ export default function App() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     // anchors:true → in-page #hash links (nav, "Skip to catalog", finale CTA) smooth-scroll via Lenis
     const lenis = new Lenis({ duration: 1.1, smoothWheel: true, anchors: true })
+    // expose the instance so the cinematic can snap-scroll to the next/prev stop
+    ;(window as unknown as { __lenis?: Lenis }).__lenis = lenis
     let raf = 0
     const loop = (t: number) => { lenis.raf(t); raf = requestAnimationFrame(loop) }
     raf = requestAnimationFrame(loop)

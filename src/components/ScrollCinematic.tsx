@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject, type MutableRefObject } from 'react'
 import { ChevronDown, Plus, Check } from 'lucide-react'
 import { PAIRS, pairProducts, type PairId, type Product } from '../data/products'
 import { coverPoint, clamp } from '../lib/cover'
@@ -66,6 +66,84 @@ const deriveCommitted = (p: number, prev: number) => {
   while (cur > 0 && p < FRAC_ENDS[cur - 1] - HYST) cur--
   return cur
 }
+// scroll position (as a fraction of the section) that parks the page in the middle of each stop's band
+const STOP_CENTER = STOP_TIMES.map((_, i) => ((i === 0 ? 0 : FRAC_ENDS[i - 1]) + FRAC_ENDS[i]) / 2)
+
+type LenisLike = { scrollTo: (t: number, o?: Record<string, unknown>) => void }
+const getLenis = () => (window as unknown as { __lenis?: LenisLike }).__lenis
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+
+// snap navigation: while the cinematic is pinned, one scroll gesture (wheel / touch / arrow key)
+// instantly auto-scrolls to the next/prev stop so it reacts immediately instead of feeling dead.
+// At the ends (finale↓ / idle↑) input is released to the normal page scroll.
+function useSnapNav(
+  sectionRef: RefObject<HTMLElement>,
+  stageRef: RefObject<HTMLElement>,
+  committedRef: MutableRefObject<number>,
+) {
+  useEffect(() => {
+    let snapping = false
+    let touchStartY = 0
+    let touchHandled = false
+
+    const pinned = () => {
+      const st = stageRef.current
+      if (!st) return false
+      const r = st.getBoundingClientRect()
+      return r.top <= 1 && r.bottom >= window.innerHeight - 1
+    }
+    const snapTo = (i: number) => {
+      const L = getLenis()
+      const sec = sectionRef.current
+      if (!L || !sec) return
+      const scrollable = Math.max(1, sec.offsetHeight - window.innerHeight)
+      const y = Math.round(sec.offsetTop + STOP_CENTER[i] * scrollable)
+      snapping = true
+      L.scrollTo(y, {
+        duration: 0.85,
+        lock: true,
+        easing: easeInOutCubic,
+        onComplete: () => { window.setTimeout(() => { snapping = false }, 140) },
+      })
+    }
+    // returns true if the gesture was consumed (caller should preventDefault)
+    const step = (dir: number) => {
+      const cur = committedRef.current
+      if ((dir > 0 && cur >= N_STOPS - 1) || (dir < 0 && cur <= 0)) return false // release at the ends
+      if (!snapping) snapTo(cur + dir)
+      return true
+    }
+
+    const onWheel = (e: WheelEvent) => {
+      if (!getLenis() || !pinned() || Math.abs(e.deltaY) < 1) return
+      if (step(e.deltaY > 0 ? 1 : -1)) e.preventDefault()
+    }
+    const onTouchStart = (e: TouchEvent) => { touchStartY = e.touches[0].clientY; touchHandled = false }
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchHandled || !getLenis() || !pinned()) return
+      const dy = touchStartY - e.touches[0].clientY
+      if (Math.abs(dy) < 24) return
+      if (step(dy > 0 ? 1 : -1)) { touchHandled = true; e.preventDefault() }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!getLenis() || !pinned()) return
+      const dir = e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ' ? 1
+        : e.key === 'ArrowUp' || e.key === 'PageUp' ? -1 : 0
+      if (dir && step(dir)) e.preventDefault()
+    }
+
+    window.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [sectionRef, stageRef, committedRef])
+}
 
 export default function ScrollCinematic() {
   const [mode] = useState<'reduced' | 'mobile' | 'video'>(() =>
@@ -86,6 +164,7 @@ function ScrubCinematic() {
   const actsRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
+  const committedRef = useRef(0) // current stop index, mirrored for the snap-nav handlers
   const curTime = useRef(0)
   const revealed = useRef(false)
   const warmedDecoder = useRef(false)
@@ -199,6 +278,7 @@ function ScrubCinematic() {
           committed = stationary >= SETTLE_FRAMES ? nc : committed + Math.sign(nc - committed)
           target = committed
         }
+        committedRef.current = committed
 
         // wall-time exponential tween toward the target stop — retarget-safe (no restart hitch),
         // plays forward or backward identically, and the clock never waits on the decoder
@@ -261,6 +341,8 @@ function ScrubCinematic() {
     raf = requestAnimationFrame(loop)
     return () => { cancelAnimationFrame(raf); if (hideTimer) clearTimeout(hideTimer) }
   }, [])
+
+  useSnapNav(sectionRef, stageRef, committedRef)
 
   // connector geometry (desktop)
   const pad = size.w * 0.035
@@ -413,6 +495,7 @@ function MobileCinematic() {
   const heroRef = useRef<HTMLDivElement>(null)
   const finaleRef = useRef<HTMLDivElement>(null)
   const hintRef = useRef<HTMLDivElement>(null)
+  const committedRef = useRef(0) // current stop index, mirrored for the snap-nav handlers
   const frames = useRef<HTMLImageElement[]>([])
   const curTime = useRef(0)
   const lastDrawn = useRef(-1)
@@ -501,6 +584,7 @@ function MobileCinematic() {
           committed = stationary >= SETTLE_FRAMES ? nc : committed + Math.sign(nc - committed)
           target = committed
         }
+        committedRef.current = committed
 
         // wall-time exponential tween toward the target stop (same driver as desktop)
         const goal = STOP_TIMES[target]
@@ -579,6 +663,8 @@ function MobileCinematic() {
     raf = requestAnimationFrame(loop)
     return () => { cancelAnimationFrame(raf); if (hideTimer) clearTimeout(hideTimer) }
   }, [])
+
+  useSnapNav(sectionRef, stageRef, committedRef)
 
   const products = pair ? pairProducts(pair) : []
 
