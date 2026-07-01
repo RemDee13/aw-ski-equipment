@@ -48,6 +48,7 @@ const STOP_PAIRS = SEGMENTS.map((s) => s.pair) // [null, optics, shell, lower, n
 const N_STOPS = STOP_TIMES.length
 const HYST = 0.03 // half-band hysteresis so a parked cursor never thrashes a boundary
 const TAU = 0.28 // exp-smoothing time constant (s) — a single stop→stop move settles in ~1s
+const TAU_FINALE = 0.5 // gentler, slower ease for the mountain reveal (last act) so it glides in
 const SETTLE_EPS = 0.0015 // |Δp| per frame that counts as "stationary"
 const SETTLE_FRAMES = 4 // stationary frames before honoring a multi-band jump directly
 const ARRIVE = 0.12 // renderTime within this (s of video) of goal → "arrived" (cards fire ~1.1s after commit)
@@ -116,9 +117,10 @@ function useSnapNav(
       const t = Math.max(0, Math.min(N_STOPS - 1, committedRef.current + dir))
       const scrollable = Math.max(1, sec.offsetHeight - window.innerHeight)
       const y = Math.round(sec.offsetTop + STOP_CENTER[t] * scrollable)
+      const dur = t === N_STOPS - 1 ? 1.25 : 0.85 // linger longer scrolling into the mountain finale
       animating = true
       L.scrollTo(y, {
-        duration: 0.85, lock: true, force: true, easing: easeInOutCubic,
+        duration: dur, lock: true, force: true, easing: easeInOutCubic,
         onComplete: () => { animating = false; maybeStart() },
       })
     }
@@ -327,7 +329,8 @@ function ScrubCinematic() {
         // wall-time exponential tween toward the target stop — retarget-safe (no restart hitch),
         // plays forward or backward identically, and the clock never waits on the decoder
         const goal = STOP_TIMES[target]
-        curTime.current += (goal - curTime.current) * (1 - Math.exp(-dt / TAU))
+        const tau = target === N_STOPS - 1 ? TAU_FINALE : TAU // ease the mountain reveal more gently
+        curTime.current += (goal - curTime.current) * (1 - Math.exp(-dt / tau))
         const dist = Math.abs(curTime.current - goal)
         const atRest = dist < ARRIVE
         if (dist < SNAP) curTime.current = goal
@@ -644,7 +647,8 @@ function MobileCinematic() {
 
         // wall-time exponential tween toward the target stop (same driver as desktop)
         const goal = STOP_TIMES[target]
-        curTime.current += (goal - curTime.current) * (1 - Math.exp(-dt / TAU))
+        const tau = target === N_STOPS - 1 ? TAU_FINALE : TAU // ease the mountain reveal more gently
+        curTime.current += (goal - curTime.current) * (1 - Math.exp(-dt / tau))
         const dist = Math.abs(curTime.current - goal)
         const atRest = dist < ARRIVE
         if (dist < SNAP) curTime.current = goal
